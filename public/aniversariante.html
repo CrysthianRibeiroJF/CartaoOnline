@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Seu cartão de aniversário</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Fraunces:opsz,wght@9..144,600;9..144,800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root { --bg: #f6efe4; --paper: #fffdf8; --ink: #2b2420; --muted: #7a6d63; --line: #e8dccb; --accent: #d9480f; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: Inter, system-ui, sans-serif; color: var(--ink); background: var(--bg);
+    background-image: radial-gradient(circle at 15% 0%, #ffe8cc 0, transparent 40%),
+                      radial-gradient(circle at 90% 20%, #fcc2d7 0, transparent 35%),
+                      radial-gradient(circle at 50% 100%, #d0ebff 0, transparent 40%);
+    min-height: 100vh; overflow-x: hidden;
+  }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 40px 16px 72px; }
+  header { text-align: center; margin-bottom: 32px; }
+  .eyebrow { text-transform: uppercase; letter-spacing: .18em; font-size: 12px; color: var(--muted); font-weight: 600; }
+  h1 { font-family: Fraunces, Georgia, serif; font-weight: 800; font-size: clamp(36px, 8vw, 72px); line-height: 1.02; margin: 12px 0 10px; }
+  h1 span { color: var(--accent); }
+  .sub { color: var(--muted); margin: 0; font-size: 17px; }
+
+  .card {
+    background: repeating-linear-gradient(transparent 0 35px, #f1e6d6 35px 36px), var(--paper);
+    border: 1px solid var(--line); border-radius: 18px; padding: 28px;
+    box-shadow: 0 18px 40px -24px rgba(80, 50, 20, .45);
+  }
+  .sigs { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 22px 30px; }
+  .sig { font-family: Caveat, cursive; animation: pop .6s ease both; }
+  .sig .texto { font-size: 25px; line-height: 1.15; margin: 0 0 6px; overflow-wrap: anywhere; }
+  .sig .nome { font-size: 28px; font-weight: 700; }
+  .sig .nome::before { content: "— "; opacity: .5; }
+  .estado { text-align: center; color: var(--muted); padding: 60px 0; font-family: Caveat, cursive; font-size: 30px; }
+  @keyframes pop { from { opacity: 0; transform: translateY(8px) rotate(-1deg); } to { opacity: 1; } }
+
+  .confete { position: fixed; top: -12px; width: 9px; height: 14px; border-radius: 2px; opacity: .85; pointer-events: none; animation: cair linear forwards; }
+  @keyframes cair { to { transform: translateY(110vh) rotate(720deg); opacity: .6; } }
+  @media (prefers-reduced-motion: reduce) { .confete { display: none; } .sig { animation: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Um cartão feito por muita gente</div>
+    <h1>Feliz aniversário, <span id="aniv">…</span>! 🎂</h1>
+    <p class="sub" id="sub"></p>
+  </header>
+  <section class="card">
+    <div class="sigs" id="sigs"><div class="estado" style="grid-column:1/-1">Carregando seu cartão…</div></div>
+  </section>
+</div>
+
+<script>
+  const INKS = ['#1c4e80', '#a61e4d', '#2b8a3e', '#5f3dc4', '#d9480f', '#0b7285'];
+  const $ = id => document.getElementById(id);
+  const k = new URLSearchParams(location.search).get('k') || '';
+  let ultima = '';
+
+  async function carregar() {
+    const r = await fetch('/api/aniversariante?k=' + encodeURIComponent(k));
+    const box = $('sigs');
+    if (!r.ok) {
+      box.innerHTML = '<div class="estado" style="grid-column:1/-1">Este link não é válido. Peça o link certo para quem organizou 🙂</div>';
+      return;
+    }
+    const d = await r.json();
+    $('aniv').textContent = d.aniversariante;
+    document.title = 'Feliz aniversário, ' + d.aniversariante + '!';
+    const n = d.assinaturas.length;
+    $('sub').textContent = n ? n + (n === 1 ? ' pessoa deixou uma mensagem para você.' : ' pessoas deixaram uma mensagem para você.') : '';
+
+    const chave = JSON.stringify(d.assinaturas);
+    if (chave === ultima) return;
+    ultima = chave;
+    box.innerHTML = '';
+    if (!n) {
+      box.innerHTML = '<div class="estado" style="grid-column:1/-1">As mensagens estão chegando… volte daqui a pouco ✍️</div>';
+      return;
+    }
+    d.assinaturas.forEach(a => {
+      const el = document.createElement('div');
+      el.className = 'sig';
+      el.style.color = INKS[a.id % INKS.length];
+      el.style.transform = 'rotate(' + (((a.id * 37) % 7) - 3) * 0.6 + 'deg)';
+      if (a.mensagem) {
+        const p = document.createElement('p');
+        p.className = 'texto';
+        p.textContent = a.mensagem;
+        el.appendChild(p);
+      }
+      const nome = document.createElement('div');
+      nome.className = 'nome';
+      nome.textContent = a.nome;
+      el.appendChild(nome);
+      box.appendChild(el);
+    });
+  }
+
+  function confete() {
+    const cores = ['#d9480f', '#f59f00', '#a61e4d', '#1c4e80', '#2b8a3e', '#5f3dc4'];
+    for (let i = 0; i < 70; i++) {
+      const c = document.createElement('div');
+      c.className = 'confete';
+      c.style.left = Math.random() * 100 + 'vw';
+      c.style.background = cores[i % cores.length];
+      c.style.animationDuration = 2.5 + Math.random() * 2.5 + 's';
+      c.style.animationDelay = Math.random() * 1.2 + 's';
+      document.body.appendChild(c);
+      setTimeout(() => c.remove(), 6500);
+    }
+  }
+
+  carregar().then(confete).catch(console.error);
+  setInterval(() => carregar().catch(console.error), 30000);
+</script>
+</body>
+</html>
