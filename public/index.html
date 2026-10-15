@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cartão de Aniversário</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Fraunces:opsz,wght@9..144,600;9..144,800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f6efe4;
+    --paper: #fffdf8;
+    --ink: #2b2420;
+    --muted: #7a6d63;
+    --line: #e8dccb;
+    --accent: #d9480f;
+    --accent-soft: #fff1e6;
+    --ok: #2b8a3e;
+    --err: #c92a2a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: Inter, system-ui, sans-serif;
+    color: var(--ink);
+    background: var(--bg);
+    background-image: radial-gradient(circle at 20% 0%, #ffe8cc 0, transparent 40%),
+                      radial-gradient(circle at 90% 30%, #fcc2d7 0, transparent 35%);
+    min-height: 100vh;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 32px 16px 64px; }
+
+  header { text-align: center; margin-bottom: 28px; }
+  .eyebrow { text-transform: uppercase; letter-spacing: .18em; font-size: 12px; color: var(--muted); font-weight: 600; }
+  h1 {
+    font-family: Fraunces, Georgia, serif; font-weight: 800;
+    font-size: clamp(34px, 7vw, 64px); line-height: 1.02; margin: 10px 0 8px;
+  }
+  h1 span { color: var(--accent); }
+  .sub { color: var(--muted); margin: 0; }
+
+  .grid { display: grid; grid-template-columns: 340px 1fr; gap: 24px; align-items: start; }
+  @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
+
+  .panel {
+    background: var(--paper); border: 1px solid var(--line); border-radius: 16px;
+    padding: 22px; box-shadow: 0 10px 30px -18px rgba(80, 50, 20, .35);
+  }
+  .panel h2 { font-family: Fraunces, Georgia, serif; font-size: 22px; margin: 0 0 4px; }
+  .panel p.hint { color: var(--muted); font-size: 14px; margin: 0 0 18px; }
+
+  label { display: block; font-size: 13px; font-weight: 600; margin: 14px 0 6px; }
+  label small { font-weight: 400; color: var(--muted); }
+  input, textarea {
+    width: 100%; font: inherit; color: inherit; padding: 11px 12px;
+    border: 1px solid var(--line); border-radius: 10px; background: #fff;
+  }
+  input:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
+  textarea { resize: vertical; min-height: 90px; }
+  button {
+    margin-top: 18px; width: 100%; padding: 12px; font: inherit; font-weight: 600;
+    background: var(--accent); color: #fff; border: 0; border-radius: 10px; cursor: pointer;
+  }
+  button:disabled { opacity: .6; cursor: wait; }
+  .msg { font-size: 14px; margin-top: 12px; min-height: 1em; }
+  .msg.ok { color: var(--ok); }
+  .msg.err { color: var(--err); }
+  .privacy { font-size: 12px; color: var(--muted); margin-top: 14px; }
+
+  .gift {
+    display: none; background: var(--accent-soft); border: 1px dashed var(--accent);
+    border-radius: 14px; padding: 16px 18px; margin-bottom: 24px;
+  }
+  .gift.show { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; justify-content: space-between; }
+  .gift strong { font-family: Fraunces, Georgia, serif; font-size: 20px; }
+  .gift .valor { font-size: 28px; font-weight: 700; color: var(--accent); font-family: Fraunces, Georgia, serif; }
+  .gift .det { font-size: 13px; color: var(--muted); }
+
+  .card {
+    position: relative; min-height: 420px;
+    background:
+      repeating-linear-gradient(transparent 0 31px, #f1e6d6 31px 32px),
+      var(--paper);
+  }
+  .card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 10px; }
+  .count { font-size: 13px; color: var(--muted); }
+  .sigs { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px 22px; }
+  .sig { font-family: Caveat, cursive; padding: 6px 2px; animation: pop .5s ease both; }
+  .sig .texto { font-size: 22px; line-height: 1.15; margin: 0 0 4px; word-wrap: break-word; }
+  .sig .nome { font-size: 26px; font-weight: 700; }
+  .sig .nome::before { content: "— "; opacity: .5; }
+  .sig.mine { background: #fff7d6; border-radius: 8px; padding: 6px 10px; }
+  .empty { text-align: center; color: var(--muted); padding: 60px 0; font-family: Caveat, cursive; font-size: 28px; }
+  @keyframes pop { from { opacity: 0; transform: translateY(6px) rotate(-1deg); } to { opacity: 1; transform: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Cartão coletivo</div>
+    <h1>Feliz aniversário, <span id="aniv">…</span>!</h1>
+    <p class="sub">Deixe sua assinatura e participe do presente.</p>
+  </header>
+
+  <div class="gift" id="gift">
+    <div>
+      <div class="det">Presente escolhido</div>
+      <strong id="giftDesc"></strong>
+      <div class="det" id="giftTotal"></div>
+    </div>
+    <div style="text-align:right">
+      <div class="det">Valor por pessoa</div>
+      <div class="valor" id="giftPP"></div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <section class="panel">
+      <h2>Assine o cartão</h2>
+      <p class="hint">Seu nome e recado aparecem no cartão ao lado.</p>
+      <form id="form" novalidate>
+        <label for="nome">Nome</label>
+        <input id="nome" name="nome" maxlength="80" autocomplete="name" required>
+        <label for="email">E-mail <small>(para avisarmos o valor do rateio)</small></label>
+        <input id="email" name="email" type="email" maxlength="120" autocomplete="email" required>
+        <label for="mensagem">Recado <small>(opcional)</small></label>
+        <textarea id="mensagem" name="mensagem" maxlength="500" placeholder="Parabéns! Muitas felicidades…"></textarea>
+        <button type="submit" id="btn">Assinar</button>
+        <div class="msg" id="msg" role="status"></div>
+      </form>
+      <p class="privacy">Seu e-mail não aparece no cartão; fica visível só para quem organiza o presente.</p>
+    </section>
+
+    <section class="panel card">
+      <div class="card-head">
+        <h2>Assinaturas</h2>
+        <span class="count" id="count"></span>
+      </div>
+      <div class="sigs" id="sigs"></div>
+    </section>
+  </div>
+</div>
+
+<script>
+  const INKS = ['#1c4e80', '#a61e4d', '#2b8a3e', '#5f3dc4', '#d9480f', '#0b7285'];
+  const brl = v => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  const $ = id => document.getElementById(id);
+  let minhas = [];
+  try { minhas = JSON.parse(localStorage.getItem('minhasAssinaturas') || '[]'); } catch (e) {}
+  let ultimoTotal = -1;
+
+  async function carregarInfo() {
+    const r = await fetch('/api/info');
+    const info = await r.json();
+    $('aniv').textContent = info.aniversariante;
+    document.title = 'Cartão para ' + info.aniversariante;
+    const g = $('gift');
+    if (info.presente) {
+      g.classList.add('show');
+      $('giftDesc').textContent = info.presente.descricao;
+      $('giftTotal').textContent = 'Total ' + brl(info.presente.valorTotal) + ' · ' + info.total + ' participante' + (info.total === 1 ? '' : 's');
+      $('giftPP').textContent = info.valorPorPessoa ? brl(info.valorPorPessoa) : '—';
+    } else {
+      g.classList.remove('show');
+    }
+  }
+
+  async function carregarAssinaturas() {
+    const r = await fetch('/api/assinaturas');
+    const lista = await r.json();
+    $('count').textContent = lista.length + (lista.length === 1 ? ' assinatura' : ' assinaturas');
+    if (lista.length === ultimoTotal) return;
+    ultimoTotal = lista.length;
+
+    const box = $('sigs');
+    box.innerHTML = '';
+    if (!lista.length) {
+      box.innerHTML = '<div class="empty" style="grid-column:1/-1">Seja a primeira pessoa a assinar ✍️</div>';
+      return;
+    }
+    lista.forEach(a => {
+      const el = document.createElement('div');
+      el.className = 'sig' + (minhas.includes(a.id) ? ' mine' : '');
+      el.style.color = INKS[a.id % INKS.length];
+      el.style.transform = 'rotate(' + (((a.id * 37) % 7) - 3) * 0.6 + 'deg)';
+      if (a.mensagem) {
+        const p = document.createElement('p');
+        p.className = 'texto';
+        p.textContent = a.mensagem;
+        el.appendChild(p);
+      }
+      const n = document.createElement('div');
+      n.className = 'nome';
+      n.textContent = a.nome;
+      el.appendChild(n);
+      box.appendChild(el);
+    });
+  }
+
+  async function atualizar() {
+    try { await Promise.all([carregarInfo(), carregarAssinaturas()]); } catch (e) { console.error(e); }
+  }
+
+  $('form').addEventListener('submit', async ev => {
+    ev.preventDefault();
+    const msg = $('msg');
+    msg.className = 'msg';
+    msg.textContent = '';
+    const dados = { nome: $('nome').value, email: $('email').value, mensagem: $('mensagem').value };
+    $('btn').disabled = true;
+    try {
+      const r = await fetch('/api/assinaturas', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(dados),
+      });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(body.erro || 'Não foi possível assinar.');
+      minhas.push(body.id);
+      try { localStorage.setItem('minhasAssinaturas', JSON.stringify(minhas)); } catch (e) {}
+      $('form').reset();
+      msg.className = 'msg ok';
+      msg.textContent = 'Obrigado! Sua assinatura está no cartão 🎉';
+      ultimoTotal = -1;
+      await atualizar();
+    } catch (e) {
+      msg.className = 'msg err';
+      msg.textContent = e.message;
+    } finally {
+      $('btn').disabled = false;
+    }
+  });
+
+  atualizar();
+  setInterval(atualizar, 10000);
+</script>
+</body>
+</html>

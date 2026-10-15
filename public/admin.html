@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Admin do Cartão</title>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root { --bg: #f6efe4; --paper: #fffdf8; --ink: #2b2420; --muted: #7a6d63; --line: #e8dccb; --accent: #d9480f; --err: #c92a2a; --ok: #2b8a3e; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: Inter, system-ui, sans-serif; color: var(--ink); background: var(--bg); }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1, h2 { font-family: Fraunces, Georgia, serif; }
+  h1 { margin: 0 0 20px; }
+  h2 { font-size: 20px; margin: 0 0 12px; }
+  .panel { background: var(--paper); border: 1px solid var(--line); border-radius: 14px; padding: 20px; margin-bottom: 20px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
+  .row > div { flex: 1 1 200px; }
+  label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+  input { width: 100%; font: inherit; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+  button { font: inherit; font-weight: 600; padding: 10px 16px; border-radius: 10px; border: 0; background: var(--accent); color: #fff; cursor: pointer; }
+  button.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+  button.del { background: transparent; color: var(--err); padding: 4px 8px; }
+  .msg { font-size: 14px; margin-top: 10px; min-height: 1em; }
+  .msg.err { color: var(--err); } .msg.ok { color: var(--ok); }
+  .stats { display: flex; gap: 24px; flex-wrap: wrap; margin-top: 16px; }
+  .stat .k { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+  .stat .v { font-size: 24px; font-weight: 700; font-family: Fraunces, Georgia, serif; }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  td.msgcol { color: var(--muted); max-width: 280px; }
+  textarea { width: 100%; font: inherit; font-size: 13px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; min-height: 140px; }
+  #app { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Admin do cartão</h1>
+
+  <div class="panel" id="login">
+    <form id="loginForm" class="row">
+      <div><label for="key">Senha de admin</label><input id="key" type="password" autocomplete="current-password"></div>
+      <button type="submit">Entrar</button>
+    </form>
+    <div class="msg" id="loginMsg"></div>
+  </div>
+
+  <div id="app">
+    <div class="panel">
+      <h2>Presente e rateio</h2>
+      <form id="giftForm" class="row">
+        <div><label for="desc">Presente</label><input id="desc" maxlength="200" placeholder="Ex.: Fone Bluetooth"></div>
+        <div style="flex:0 1 180px"><label for="valor">Valor total (R$)</label><input id="valor" type="number" step="0.01" min="0" placeholder="350,00"></div>
+        <button type="submit">Salvar</button>
+        <button type="button" class="ghost" id="limpar">Remover</button>
+      </form>
+      <div class="msg" id="giftMsg"></div>
+      <div class="stats">
+        <div class="stat"><div class="k">Participantes</div><div class="v" id="sTotal">0</div></div>
+        <div class="stat"><div class="k">Valor por pessoa</div><div class="v" id="sPP">—</div></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Avisar a galera</h2>
+      <p style="margin:0 0 10px;color:var(--muted);font-size:14px">Copie os e-mails e a mensagem, ou abra direto no seu cliente de e-mail (todos em cópia oculta).</p>
+      <textarea id="texto" readonly></textarea>
+      <div class="row" style="margin-top:10px">
+        <button type="button" class="ghost" id="copiarEmails">Copiar e-mails</button>
+        <button type="button" class="ghost" id="copiarTexto">Copiar mensagem</button>
+        <button type="button" id="abrirEmail">Abrir no e-mail</button>
+      </div>
+      <div class="msg" id="avisoMsg"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Assinaturas</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>#</th><th>Nome</th><th>E-mail</th><th>Recado</th><th>Quando</th><th></th></tr></thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const $ = id => document.getElementById(id);
+  const brl = v => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  let KEY = '';
+  try { KEY = sessionStorage.getItem('adminKey') || ''; } catch (e) {}
+  let estado = { lista: [], info: null };
+
+  async function api(path, opts = {}) {
+    const r = await fetch(path, { ...opts, headers: { 'Content-Type': 'application/json', 'x-admin-key': KEY, ...(opts.headers || {}) } });
+    if (r.status === 204) return null;
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) { const e = new Error(body.erro || 'Erro'); e.status = r.status; throw e; }
+    return body;
+  }
+
+  async function carregar() {
+    const [lista, info] = await Promise.all([api('/api/admin/assinaturas'), api('/api/info')]);
+    estado = { lista, info };
+    $('login').style.display = 'none';
+    $('app').style.display = 'block';
+    render();
+  }
+
+  function render() {
+    const { lista, info } = estado;
+    $('sTotal').textContent = info.total;
+    $('sPP').textContent = info.valorPorPessoa ? brl(info.valorPorPessoa) : '—';
+    if (info.presente && document.activeElement !== $('desc') && document.activeElement !== $('valor')) {
+      $('desc').value = info.presente.descricao;
+      $('valor').value = info.presente.valorTotal;
+    }
+
+    const tb = $('tbody');
+    tb.innerHTML = '';
+    lista.forEach((a, i) => {
+      const tr = document.createElement('tr');
+      [i + 1, a.nome, a.email, a.mensagem, new Date(a.criadoEm).toLocaleString('pt-BR')].forEach((v, j) => {
+        const td = document.createElement('td');
+        td.textContent = v;
+        if (j === 3) td.className = 'msgcol';
+        tr.appendChild(td);
+      });
+      const td = document.createElement('td');
+      const b = document.createElement('button');
+      b.className = 'del'; b.textContent = 'Excluir';
+      b.onclick = async () => {
+        if (!confirm('Excluir a assinatura de ' + a.nome + '?')) return;
+        await api('/api/admin/assinaturas/' + a.id, { method: 'DELETE' });
+        carregar();
+      };
+      td.appendChild(b); tr.appendChild(td); tb.appendChild(tr);
+    });
+
+    $('texto').value = mensagem();
+  }
+
+  function mensagem() {
+    const { info } = estado;
+    if (!info.presente) return 'Defina o presente e o valor acima para gerar a mensagem.';
+    return `Oi, pessoal!
+
+Obrigado por assinarem o cartão de aniversário de ${info.aniversariante}.
+
+Presente: ${info.presente.descricao}
+Valor total: ${brl(info.presente.valorTotal)}
+Participantes: ${info.total}
+Valor por pessoa: ${brl(info.valorPorPessoa)}
+
+Chave Pix para o rateio: [COLOQUE AQUI]
+
+Valeu!`;
+  }
+
+  function copiar(texto, rotulo) {
+    navigator.clipboard.writeText(texto).then(
+      () => { $('avisoMsg').className = 'msg ok'; $('avisoMsg').textContent = rotulo + ' copiado(s).'; },
+      () => { $('avisoMsg').className = 'msg err'; $('avisoMsg').textContent = 'Não foi possível copiar.'; }
+    );
+  }
+
+  $('loginForm').addEventListener('submit', async ev => {
+    ev.preventDefault();
+    KEY = $('key').value;
+    try {
+      await carregar();
+      try { sessionStorage.setItem('adminKey', KEY); } catch (e) {}
+    } catch (e) {
+      $('loginMsg').className = 'msg err';
+      $('loginMsg').textContent = e.message;
+    }
+  });
+
+  $('giftForm').addEventListener('submit', async ev => {
+    ev.preventDefault();
+    try {
+      await api('/api/admin/presente', { method: 'PUT', body: JSON.stringify({ descricao: $('desc').value, valorTotal: $('valor').value }) });
+      $('giftMsg').className = 'msg ok'; $('giftMsg').textContent = 'Salvo. O valor por pessoa já aparece no cartão.';
+      carregar();
+    } catch (e) { $('giftMsg').className = 'msg err'; $('giftMsg').textContent = e.message; }
+  });
+
+  $('limpar').onclick = async () => {
+    await api('/api/admin/presente', { method: 'PUT', body: JSON.stringify({ descricao: '' }) });
+    $('desc').value = ''; $('valor').value = '';
+    $('giftMsg').className = 'msg ok'; $('giftMsg').textContent = 'Presente removido.';
+    carregar();
+  };
+
+  $('copiarEmails').onclick = () => copiar(estado.lista.map(a => a.email).join(', '), 'E-mails');
+  $('copiarTexto').onclick = () => copiar(mensagem(), 'Mensagem');
+  $('abrirEmail').onclick = () => {
+    const bcc = estado.lista.map(a => a.email).join(',');
+    const assunto = 'Rateio do presente de ' + estado.info.aniversariante;
+    location.href = 'mailto:?bcc=' + encodeURIComponent(bcc) + '&subject=' + encodeURIComponent(assunto) + '&body=' + encodeURIComponent(mensagem());
+  };
+
+  if (KEY) carregar().catch(() => { KEY = ''; });
+  setInterval(() => { if ($('app').style.display === 'block') carregar().catch(() => {}); }, 15000);
+</script>
+</body>
+</html>
