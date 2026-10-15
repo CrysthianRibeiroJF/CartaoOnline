@@ -91,6 +91,13 @@
   .sig .nome { font-size: 26px; font-weight: 700; }
   .sig .nome::before { content: "— "; opacity: .5; }
   .sig.mine { background: #fff7d6; border-radius: 8px; padding: 6px 10px; }
+  .sig .editar {
+    margin: 6px 0 0; width: auto; padding: 4px 10px; font: 600 12px Inter, system-ui, sans-serif;
+    background: transparent; color: var(--ink); border: 1px solid var(--line); border-radius: 999px;
+  }
+  button.secundario { background: transparent; color: var(--ink); border: 1px solid var(--line); margin-top: 8px; }
+  .editando { display: none; font-size: 13px; background: #fff7d6; border-radius: 8px; padding: 8px 10px; margin-bottom: 6px; }
+  .editando.show { display: block; }
   .empty { text-align: center; color: var(--muted); padding: 60px 0; font-family: Caveat, cursive; font-size: 28px; }
   @keyframes pop { from { opacity: 0; transform: translateY(6px) rotate(-1deg); } to { opacity: 1; transform: none; } }
 </style>
@@ -117,8 +124,9 @@
 
   <div class="grid">
     <section class="panel">
-      <h2>Assine o cartão</h2>
+      <h2 id="formTitulo">Assine o cartão</h2>
       <p class="hint">Seu nome e recado aparecem no cartão ao lado.</p>
+      <div class="editando" id="editando">Você está editando a sua assinatura.</div>
       <form id="form" novalidate>
         <label for="nome">Nome</label>
         <input id="nome" name="nome" maxlength="80" autocomplete="name" required>
@@ -127,9 +135,12 @@
         <label for="mensagem">Recado <small>(opcional)</small></label>
         <textarea id="mensagem" name="mensagem" maxlength="500" placeholder="Parabéns! Muitas felicidades…"></textarea>
         <button type="submit" id="btn">Assinar</button>
+        <button type="button" class="secundario" id="cancelar" hidden>Cancelar edição</button>
         <div class="msg" id="msg" role="status"></div>
       </form>
-      <p class="privacy">Seu e-mail não aparece no cartão; fica visível só para quem organiza o presente.</p>
+      <p class="privacy">Seu e-mail não aparece no cartão; fica visível só para quem organiza o presente.
+        Escreveu algo errado? Use o botão <b>Editar</b> na sua assinatura (funciona neste mesmo navegador).
+        Se assinou em outro aparelho, peça para quem organiza corrigir.</p>
     </section>
 
     <section class="panel card">
@@ -146,9 +157,17 @@
   const INKS = ['#1c4e80', '#a61e4d', '#2b8a3e', '#5f3dc4', '#d9480f', '#0b7285'];
   const brl = v => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   const $ = id => document.getElementById(id);
-  let minhas = [];
-  try { minhas = JSON.parse(localStorage.getItem('minhasAssinaturas') || '[]'); } catch (e) {}
-  let ultimoTotal = -1;
+
+  // Assinaturas feitas neste navegador: { id: token }. O token é o que permite editar.
+  let minhas = {};
+  try {
+    const salvo = JSON.parse(localStorage.getItem('minhasAssinaturas') || '{}');
+    if (salvo && !Array.isArray(salvo)) minhas = salvo;
+  } catch (e) {}
+  const guardarMinhas = () => { try { localStorage.setItem('minhasAssinaturas', JSON.stringify(minhas)); } catch (e) {} };
+
+  let ultimaLista = '';
+  let editandoId = null;
 
   async function carregarInfo() {
     const r = await fetch('/api/info');
@@ -166,12 +185,13 @@
     }
   }
 
-  async function carregarAssinaturas() {
+  async function carregarAssinaturas(forcar) {
     const r = await fetch('/api/assinaturas');
     const lista = await r.json();
     $('count').textContent = lista.length + (lista.length === 1 ? ' assinatura' : ' assinaturas');
-    if (lista.length === ultimoTotal) return;
-    ultimoTotal = lista.length;
+    const chave = JSON.stringify(lista);
+    if (!forcar && chave === ultimaLista) return;
+    ultimaLista = chave;
 
     const box = $('sigs');
     box.innerHTML = '';
@@ -180,8 +200,9 @@
       return;
     }
     lista.forEach(a => {
+      const minha = !!minhas[a.id];
       const el = document.createElement('div');
-      el.className = 'sig' + (minhas.includes(a.id) ? ' mine' : '');
+      el.className = 'sig' + (minha ? ' mine' : '');
       el.style.color = INKS[a.id % INKS.length];
       el.style.transform = 'rotate(' + (((a.id * 37) % 7) - 3) * 0.6 + 'deg)';
       if (a.mensagem) {
@@ -194,37 +215,79 @@
       n.className = 'nome';
       n.textContent = a.nome;
       el.appendChild(n);
+      if (minha) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'editar';
+        b.textContent = '✏️ Editar';
+        b.onclick = () => iniciarEdicao(a.id);
+        el.appendChild(b);
+      }
       box.appendChild(el);
     });
   }
 
-  async function atualizar() {
-    try { await Promise.all([carregarInfo(), carregarAssinaturas()]); } catch (e) { console.error(e); }
+  async function atualizar(forcar) {
+    try { await Promise.all([carregarInfo(), carregarAssinaturas(forcar)]); } catch (e) { console.error(e); }
   }
+
+  function aviso(texto, tipo) {
+    $('msg').className = 'msg' + (tipo ? ' ' + tipo : '');
+    $('msg').textContent = texto;
+  }
+
+  function modoEdicao(id) {
+    editandoId = id;
+    const on = id !== null;
+    $('formTitulo').textContent = on ? 'Editar assinatura' : 'Assine o cartão';
+    $('btn').textContent = on ? 'Salvar alterações' : 'Assinar';
+    $('cancelar').hidden = !on;
+    $('editando').classList.toggle('show', on);
+    if (!on) $('form').reset();
+  }
+
+  async function iniciarEdicao(id) {
+    aviso('');
+    try {
+      const r = await fetch('/api/assinaturas/' + id, { headers: { 'x-edit-token': minhas[id] } });
+      const a = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(a.erro || 'Não foi possível carregar sua assinatura.');
+      $('nome').value = a.nome;
+      $('email').value = a.email;
+      $('mensagem').value = a.mensagem;
+      modoEdicao(id);
+      $('nome').focus();
+      $('form').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (e) {
+      aviso(e.message, 'err');
+    }
+  }
+
+  $('cancelar').onclick = () => { modoEdicao(null); aviso(''); };
 
   $('form').addEventListener('submit', async ev => {
     ev.preventDefault();
-    const msg = $('msg');
-    msg.className = 'msg';
-    msg.textContent = '';
+    aviso('');
     const dados = { nome: $('nome').value, email: $('email').value, mensagem: $('mensagem').value };
+    const editando = editandoId !== null;
     $('btn').disabled = true;
     try {
-      const r = await fetch('/api/assinaturas', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(dados),
+      const r = await fetch(editando ? '/api/assinaturas/' + editandoId : '/api/assinaturas', {
+        method: editando ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json', ...(editando ? { 'x-edit-token': minhas[editandoId] } : {}) },
+        body: JSON.stringify(dados),
       });
       const body = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(body.erro || 'Não foi possível assinar.');
-      minhas.push(body.id);
-      try { localStorage.setItem('minhasAssinaturas', JSON.stringify(minhas)); } catch (e) {}
-      $('form').reset();
-      msg.className = 'msg ok';
-      msg.textContent = 'Obrigado! Sua assinatura está no cartão 🎉';
-      ultimoTotal = -1;
-      await atualizar();
+      if (!r.ok) throw new Error(body.erro || 'Não foi possível salvar.');
+      if (!editando) {
+        minhas[body.id] = body.token;
+        guardarMinhas();
+      }
+      modoEdicao(null);
+      aviso(editando ? 'Assinatura atualizada ✅' : 'Obrigado! Sua assinatura está no cartão 🎉', 'ok');
+      await atualizar(true);
     } catch (e) {
-      msg.className = 'msg err';
-      msg.textContent = e.message;
+      aviso(e.message, 'err');
     } finally {
       $('btn').disabled = false;
     }

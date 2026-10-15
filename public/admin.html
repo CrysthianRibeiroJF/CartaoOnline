@@ -94,6 +94,7 @@
   let KEY = '';
   try { KEY = sessionStorage.getItem('adminKey') || ''; } catch (e) {}
   let estado = { lista: [], info: null };
+  let editandoId = null;
 
   async function api(path, opts = {}) {
     const r = await fetch(path, { ...opts, headers: { 'Content-Type': 'application/json', 'x-admin-key': KEY, ...(opts.headers || {}) } });
@@ -124,21 +125,53 @@
     tb.innerHTML = '';
     lista.forEach((a, i) => {
       const tr = document.createElement('tr');
+      const editando = a.id === editandoId;
+      const campos = {};
       [i + 1, a.nome, a.email, a.mensagem, new Date(a.criadoEm).toLocaleString('pt-BR')].forEach((v, j) => {
         const td = document.createElement('td');
-        td.textContent = v;
+        const campo = ['', 'nome', 'email', 'mensagem'][j];
+        if (editando && campo) {
+          const inp = document.createElement(campo === 'mensagem' ? 'textarea' : 'input');
+          inp.value = v;
+          if (campo === 'mensagem') inp.style.minHeight = '60px';
+          campos[campo] = inp;
+          td.appendChild(inp);
+        } else {
+          td.textContent = v;
+        }
         if (j === 3) td.className = 'msgcol';
         tr.appendChild(td);
       });
       const td = document.createElement('td');
-      const b = document.createElement('button');
-      b.className = 'del'; b.textContent = 'Excluir';
-      b.onclick = async () => {
-        if (!confirm('Excluir a assinatura de ' + a.nome + '?')) return;
-        await api('/api/admin/assinaturas/' + a.id, { method: 'DELETE' });
-        carregar();
+      td.style.whiteSpace = 'nowrap';
+      const botao = (texto, fn) => {
+        const b = document.createElement('button');
+        b.className = 'del'; b.style.color = 'var(--ink)'; b.textContent = texto; b.onclick = fn;
+        td.appendChild(b);
+        return b;
       };
-      td.appendChild(b); tr.appendChild(td); tb.appendChild(tr);
+      if (editando) {
+        botao('Salvar', async () => {
+          try {
+            await api('/api/admin/assinaturas/' + a.id, {
+              method: 'PUT',
+              body: JSON.stringify({ nome: campos.nome.value, email: campos.email.value, mensagem: campos.mensagem.value }),
+            });
+            editandoId = null;
+            carregar();
+          } catch (e) { alert(e.message); }
+        });
+        botao('Cancelar', () => { editandoId = null; render(); });
+      } else {
+        botao('Editar', () => { editandoId = a.id; render(); });
+        const del = botao('Excluir', async () => {
+          if (!confirm('Excluir a assinatura de ' + a.nome + '?')) return;
+          await api('/api/admin/assinaturas/' + a.id, { method: 'DELETE' });
+          carregar();
+        });
+        del.style.color = 'var(--err)';
+      }
+      tr.appendChild(td); tb.appendChild(tr);
     });
 
     $('texto').value = mensagem();
@@ -205,7 +238,8 @@ Valeu!`;
   };
 
   if (KEY) carregar().catch(() => { KEY = ''; });
-  setInterval(() => { if ($('app').style.display === 'block') carregar().catch(() => {}); }, 15000);
+  // Não atualiza sozinho enquanto uma linha está sendo editada, para não perder o que foi digitado.
+  setInterval(() => { if ($('app').style.display === 'block' && editandoId === null) carregar().catch(() => {}); }, 15000);
 </script>
 </body>
 </html>

@@ -11,6 +11,8 @@ const DATA_FILE = process.env.DATA_FILE || path.join(__dirname, 'data.json');
 
 // ---------------------------------------------------------------------------
 // Armazenamento: Postgres se DATABASE_URL existir, senão arquivo JSON local.
+// Cada assinatura guarda um token secreto que só quem assinou recebe; é ele
+// que permite a pessoa editar a própria assinatura (e só a dela).
 // ---------------------------------------------------------------------------
 
 function fileStore() {
@@ -23,10 +25,18 @@ function fileStore() {
   return {
     async init() {},
     async listar() { return data.assinaturas.slice(); },
-    async existeEmail(email) { return data.assinaturas.some(a => a.email === email); },
-    async adicionar({ nome, email, mensagem }) {
-      const a = { id: data.nextId++, nome, email, mensagem, criadoEm: new Date().toISOString() };
+    async buscar(id) { return data.assinaturas.find(a => a.id === id) || null; },
+    async existeEmail(email, excetoId) { return data.assinaturas.some(a => a.email === email && a.id !== excetoId); },
+    async adicionar({ nome, email, mensagem, token }) {
+      const a = { id: data.nextId++, nome, email, mensagem, token, criadoEm: new Date().toISOString() };
       data.assinaturas.push(a);
+      save();
+      return a;
+    },
+    async atualizar(id, { nome, email, mensagem }) {
+      const a = data.assinaturas.find(x => x.id === id);
+      if (!a) return null;
+      Object.assign(a, { nome, email, mensagem });
       save();
       return a;
     },
@@ -45,6 +55,7 @@ function pgStore() {
     connectionString: DATABASE_URL,
     ssl: /localhost|127\.0\.0\.1/.test(DATABASE_URL) ? false : { rejectUnauthorized: false },
   });
+  const linha = r => ({ id: r.id, nome: r.nome, email: r.email, mensagem: r.mensagem, token: r.token, criadoEm: r.criado_em.toISOString() });
 
   return {
     async init() {
@@ -56,6 +67,7 @@ function pgStore() {
           mensagem TEXT NOT NULL DEFAULT '',
           criado_em TIMESTAMPTZ NOT NULL DEFAULT now()
         );
+        ALTER TABLE assinaturas ADD COLUMN IF NOT EXISTS token TEXT;
         CREATE TABLE IF NOT EXISTS config (
           chave TEXT PRIMARY KEY,
           valor JSONB
@@ -63,19 +75,30 @@ function pgStore() {
       `);
     },
     async listar() {
-      const { rows } = await pool.query('SELECT id, nome, email, mensagem, criado_em FROM assinaturas ORDER BY id');
-      return rows.map(r => ({ id: r.id, nome: r.nome, email: r.email, mensagem: r.mensagem, criadoEm: r.criado_em.toISOString() }));
+      const { rows } = await pool.query('SELECT * FROM assinaturas ORDER BY id');
+      return rows.map(linha);
     },
-    async existeEmail(email) {
-      const { rowCount } = await pool.query('SELECT 1 FROM assinaturas WHERE email = $1', [email]);
+    async buscar(id) {
+      const { rows } = await pool.query('SELECT * FROM assinaturas WHERE id = $1', [id]);
+      return rows[0] ? linha(rows[0]) : null;
+    },
+    async existeEmail(email, excetoId) {
+      const { rowCount } = await pool.query('SELECT 1 FROM assinaturas WHERE email = $1 AND id <> $2', [email, excetoId || 0]);
       return rowCount > 0;
     },
-    async adicionar({ nome, email, mensagem }) {
+    async adicionar({ nome, email, mensagem, token }) {
       const { rows } = await pool.query(
-        'INSERT INTO assinaturas (nome, email, mensagem) VALUES ($1, $2, $3) RETURNING id, criado_em',
-        [nome, email, mensagem]
+        'INSERT INTO assinaturas (nome, email, mensagem, token) VALUES ($1, $2, $3, $4) RETURNING *',
+        [nome, email, mensagem, token]
       );
-      return { id: rows[0].id, nome, email, mensagem, criadoEm: rows[0].criado_em.toISOString() };
+      return linha(rows[0]);
+    },
+    async atualizar(id, { nome, email, mensagem }) {
+      const { rows } = await pool.query(
+        'UPDATE assinaturas SET nome = $2, email = $3, mensagem = $4 WHERE id = $1 RETURNING *',
+        [id, nome, email, mensagem]
+      );
+      return rows[0] ? linha(rows[0]) : null;
     },
     async remover(id) { await pool.query('DELETE FROM assinaturas WHERE id = $1', [id]); },
     async getPresente() {
@@ -98,10 +121,24 @@ const store = DATABASE_URL ? pgStore() : fileStore();
 // ---------------------------------------------------------------------------
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const DUPLICADO = 'Este e-mail já assinou o cartão.';
 
 function limpar(s, max) {
   return String(s || '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, max);
 }
+
+// Valida os campos de uma assinatura; devolve { erro } ou { dados }.
+function validar(body) {
+  const nome = limpar(body.nome, 80);
+  const email = limpar(body.email, 120).toLowerCase();
+  const mensagem = limpar(body.mensagem, 500);
+  if (nome.length < 2) return { erro: 'Informe seu nome.' };
+  if (!EMAIL_RE.test(email)) return { erro: 'Informe um e-mail válido.' };
+  return { dados: { nome, email, mensagem } };
+}
+
+const publica = ({ id, nome, mensagem, criadoEm }) => ({ id, nome, mensagem, criadoEm });
+const semToken = ({ token, ...resto }) => resto;
 
 function rateio(presente, total) {
   if (!presente || !presente.valorTotal || total === 0) return null;
@@ -109,10 +146,14 @@ function rateio(presente, total) {
   return Math.ceil((presente.valorTotal * 100) / total) / 100;
 }
 
+function mesmoSegredo(a, b) {
+  const x = Buffer.from(String(a || ''));
+  const y = Buffer.from(String(b || ''));
+  return x.length > 0 && x.length === y.length && crypto.timingSafeEqual(x, y);
+}
+
 function isAdmin(req) {
-  const enviada = Buffer.from(String(req.get('x-admin-key') || ''));
-  const correta = Buffer.from(ADMIN_KEY);
-  return enviada.length === correta.length && crypto.timingSafeEqual(enviada, correta);
+  return mesmoSegredo(req.get('x-admin-key'), ADMIN_KEY);
 }
 
 // Limite simples por IP: no máximo 5 assinaturas a cada 10 minutos.
@@ -125,6 +166,30 @@ function limitePorIp(req, res, next) {
   lista.push(agora);
   tentativas.set(ip, lista);
   next();
+}
+
+async function editar(id, req, res) {
+  const { erro, dados } = validar(req.body);
+  if (erro) return res.status(400).json({ erro });
+  if (await store.existeEmail(dados.email, id)) return res.status(409).json({ erro: DUPLICADO });
+  try {
+    const a = await store.atualizar(id, dados);
+    if (!a) return res.status(404).json({ erro: 'Assinatura não encontrada.' });
+    res.json(semToken(a));
+  } catch (e) {
+    if (e.code === '23505') return res.status(409).json({ erro: DUPLICADO });
+    throw e;
+  }
+}
+
+// Só quem tem o token daquela assinatura passa daqui.
+async function donoDaAssinatura(req, res) {
+  const a = await store.buscar(Number(req.params.id));
+  if (!a || !mesmoSegredo(req.get('x-edit-token'), a.token)) {
+    res.status(403).json({ erro: 'Você só pode editar a sua própria assinatura. Se precisar, peça para quem organiza corrigir.' });
+    return null;
+  }
+  return a;
 }
 
 // ---------------------------------------------------------------------------
@@ -148,30 +213,39 @@ app.get('/api/info', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// Lista pública: sem e-mails.
+// Lista pública: sem e-mails nem tokens.
 app.get('/api/assinaturas', async (req, res, next) => {
-  try {
-    const assinaturas = await store.listar();
-    res.json(assinaturas.map(({ id, nome, mensagem, criadoEm }) => ({ id, nome, mensagem, criadoEm })));
-  } catch (e) { next(e); }
+  try { res.json((await store.listar()).map(publica)); } catch (e) { next(e); }
 });
 
 app.post('/api/assinaturas', limitePorIp, async (req, res, next) => {
   try {
-    const nome = limpar(req.body.nome, 80);
-    const email = limpar(req.body.email, 120).toLowerCase();
-    const mensagem = limpar(req.body.mensagem, 500);
+    const { erro, dados } = validar(req.body);
+    if (erro) return res.status(400).json({ erro });
+    if (await store.existeEmail(dados.email)) return res.status(409).json({ erro: DUPLICADO });
 
-    if (nome.length < 2) return res.status(400).json({ erro: 'Informe seu nome.' });
-    if (!EMAIL_RE.test(email)) return res.status(400).json({ erro: 'Informe um e-mail válido.' });
-    if (await store.existeEmail(email)) return res.status(409).json({ erro: 'Este e-mail já assinou o cartão.' });
-
-    const a = await store.adicionar({ nome, email, mensagem });
-    res.status(201).json({ id: a.id, nome: a.nome, mensagem: a.mensagem, criadoEm: a.criadoEm });
+    const token = crypto.randomBytes(18).toString('base64url');
+    const a = await store.adicionar({ ...dados, token });
+    // O token só volta aqui, para quem acabou de assinar.
+    res.status(201).json({ ...publica(a), token });
   } catch (e) {
-    if (e.code === '23505') return res.status(409).json({ erro: 'Este e-mail já assinou o cartão.' });
+    if (e.code === '23505') return res.status(409).json({ erro: DUPLICADO });
     next(e);
   }
+});
+
+app.get('/api/assinaturas/:id', async (req, res, next) => {
+  try {
+    const a = await donoDaAssinatura(req, res);
+    if (a) res.json(semToken(a));
+  } catch (e) { next(e); }
+});
+
+app.put('/api/assinaturas/:id', async (req, res, next) => {
+  try {
+    const a = await donoDaAssinatura(req, res);
+    if (a) await editar(a.id, req, res);
+  } catch (e) { next(e); }
 });
 
 // ---- Admin ----
@@ -182,7 +256,11 @@ app.use('/api/admin', (req, res, next) => {
 });
 
 app.get('/api/admin/assinaturas', async (req, res, next) => {
-  try { res.json(await store.listar()); } catch (e) { next(e); }
+  try { res.json((await store.listar()).map(semToken)); } catch (e) { next(e); }
+});
+
+app.put('/api/admin/assinaturas/:id', async (req, res, next) => {
+  try { await editar(Number(req.params.id), req, res); } catch (e) { next(e); }
 });
 
 app.delete('/api/admin/assinaturas/:id', async (req, res, next) => {
