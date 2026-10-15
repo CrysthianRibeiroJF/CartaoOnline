@@ -8,10 +8,6 @@ const ADMIN_KEY = process.env.ADMIN_KEY || 'troque-esta-senha';
 const ANIVERSARIANTE = process.env.ANIVERSARIANTE || 'Aniversariante';
 const DATABASE_URL = process.env.DATABASE_URL;
 const DATA_FILE = process.env.DATA_FILE || path.join(__dirname, 'data.json');
-// E-mail via API do Brevo (o Render gratuito bloqueia SMTP). Sem isso, o admin usa o próprio cliente de e-mail.
-const BREVO_API_KEY = process.env.BREVO_API_KEY;
-const EMAIL_FROM = process.env.EMAIL_FROM;
-const EMAIL_FROM_NAME = process.env.EMAIL_FROM_NAME || 'Cartão de Aniversário';
 
 // ---------------------------------------------------------------------------
 // Armazenamento: Postgres se DATABASE_URL existir, senão arquivo JSON local.
@@ -205,7 +201,7 @@ async function donoDaAssinatura(req, res) {
 async function configAniversariante() {
   let c = await store.getConfig('aniversariante');
   if (!c || !c.token) {
-    c = { email: '', ...(c || {}), token: crypto.randomBytes(18).toString('base64url') };
+    c = { ...(c || {}), token: crypto.randomBytes(18).toString('base64url') };
     await store.setConfig('aniversariante', c);
   }
   return c;
@@ -216,60 +212,6 @@ function urlBase(req) {
 }
 
 const linkAniversariante = (req, c) => `${urlBase(req)}/aniversariante.html?k=${c.token}`;
-
-const escapar = s => String(s).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
-
-function emailHtml(assinaturas, link) {
-  const itens = assinaturas.map(a => `
-      <tr><td style="padding:12px 0;border-bottom:1px solid #eadfce">
-        ${a.mensagem ? `<div style="font-size:16px;line-height:1.4;color:#2b2420;margin-bottom:4px">“${escapar(a.mensagem)}”</div>` : ''}
-        <div style="font-size:15px;font-weight:bold;color:#d9480f">— ${escapar(a.nome)}</div>
-      </td></tr>`).join('');
-
-  return `<!doctype html><html><body style="margin:0;background:#f6efe4;font-family:Georgia,'Times New Roman',serif">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f6efe4;padding:24px 12px">
-    <tr><td align="center">
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#fffdf8;border:1px solid #e8dccb;border-radius:14px;padding:28px">
-        <tr><td style="text-align:center">
-          <div style="font-size:12px;letter-spacing:3px;text-transform:uppercase;color:#7a6d63;font-family:Arial,sans-serif">Cartão coletivo</div>
-          <h1 style="font-size:30px;margin:10px 0 6px;color:#2b2420">Feliz aniversário, <span style="color:#d9480f">${escapar(ANIVERSARIANTE)}</span>! 🎂</h1>
-          <p style="margin:0 0 18px;color:#7a6d63;font-family:Arial,sans-serif;font-size:14px">${assinaturas.length} ${assinaturas.length === 1 ? 'pessoa assinou' : 'pessoas assinaram'} o seu cartão.</p>
-        </td></tr>
-        ${itens}
-        <tr><td style="text-align:center;padding-top:24px">
-          <a href="${link}" style="display:inline-block;background:#d9480f;color:#fff;text-decoration:none;font-family:Arial,sans-serif;font-weight:bold;padding:12px 22px;border-radius:10px">Ver o cartão completo</a>
-          <p style="font-size:12px;color:#7a6d63;font-family:Arial,sans-serif;margin:14px 0 0">Ou abra: <a href="${link}" style="color:#7a6d63">${link}</a></p>
-        </td></tr>
-      </table>
-    </td></tr>
-  </table>
-</body></html>`;
-}
-
-async function enviarEmailBrevo(para, assunto, html) {
-  let r;
-  try {
-    r = await fetch('https://api.brevo.com/v3/smtp/email', {
-      method: 'POST',
-      headers: { 'api-key': BREVO_API_KEY, 'Content-Type': 'application/json', accept: 'application/json' },
-      body: JSON.stringify({
-        sender: { name: EMAIL_FROM_NAME, email: EMAIL_FROM },
-        to: [{ email: para, name: ANIVERSARIANTE }],
-        subject: assunto,
-        htmlContent: html,
-      }),
-      signal: AbortSignal.timeout(15000),
-    });
-  } catch (e) {
-    console.error('Falha ao contactar o Brevo:', e);
-    throw Object.assign(new Error('Não foi possível contactar o serviço de e-mail. Tente de novo em instantes.'), { status: 502 });
-  }
-  if (!r.ok) {
-    const corpo = await r.text().catch(() => '');
-    console.error('Brevo respondeu', r.status, corpo);
-    throw Object.assign(new Error('O serviço de e-mail recusou o envio (' + r.status + '). Veja os logs do Render.'), { status: 502 });
-  }
-}
 
 // ---------------------------------------------------------------------------
 // App
@@ -375,34 +317,8 @@ app.put('/api/admin/presente', async (req, res, next) => {
 app.get('/api/admin/aniversariante', async (req, res, next) => {
   try {
     const c = await configAniversariante();
-    res.json({ email: c.email, link: linkAniversariante(req, c), envioAutomatico: !!(BREVO_API_KEY && EMAIL_FROM), ultimoEnvio: c.ultimoEnvio || null });
+    res.json({ link: linkAniversariante(req, c) });
   } catch (e) { next(e); }
-});
-
-app.put('/api/admin/aniversariante', async (req, res, next) => {
-  try {
-    const email = limpar(req.body.email, 120).toLowerCase();
-    if (email && !EMAIL_RE.test(email)) return res.status(400).json({ erro: 'E-mail inválido.' });
-    const c = await configAniversariante();
-    await store.setConfig('aniversariante', { ...c, email });
-    res.json({ email });
-  } catch (e) { next(e); }
-});
-
-app.post('/api/admin/aniversariante/enviar', async (req, res, next) => {
-  try {
-    if (!BREVO_API_KEY || !EMAIL_FROM) return res.status(400).json({ erro: 'Envio automático não configurado (BREVO_API_KEY e EMAIL_FROM).' });
-    const c = await configAniversariante();
-    if (!c.email) return res.status(400).json({ erro: 'Cadastre o e-mail do aniversariante primeiro.' });
-    const link = linkAniversariante(req, c);
-    await enviarEmailBrevo(c.email, `Feliz aniversário, ${ANIVERSARIANTE}! 🎂 Seu cartão chegou`, emailHtml(await store.listar(), link));
-    const ultimoEnvio = new Date().toISOString();
-    await store.setConfig('aniversariante', { ...c, ultimoEnvio });
-    res.json({ ok: true, ultimoEnvio });
-  } catch (e) {
-    if (e.status) return res.status(e.status).json({ erro: e.message });
-    next(e);
-  }
 });
 
 app.use((err, req, res, next) => {

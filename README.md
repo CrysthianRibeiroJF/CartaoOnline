@@ -23,23 +23,12 @@ Abra http://localhost:3000. Sem `DATABASE_URL`, os dados ficam em `data.json`.
 | `ANIVERSARIANTE` | Nome que aparece no título ("Feliz aniversário, Fulana!")   |
 | `ADMIN_KEY`      | Senha da página `/admin.html`. **Obrigatório trocar.**      |
 | `DATABASE_URL`   | Postgres (recomendado no Render). Sem ela, usa `data.json`. |
-| `BREVO_API_KEY`  | Chave de API do Brevo, para enviar o cartão ao aniversariante. |
-| `EMAIL_FROM`     | E-mail remetente, verificado no Brevo.                      |
-| `EMAIL_FROM_NAME`| Nome do remetente (opcional).                               |
 
 ## Visão do aniversariante
 
-No admin, cadastre o e-mail do aniversariante. Ele recebe um e-mail com as mensagens e um link secreto
-(`/aniversariante.html?k=...`) para o cartão dele, que mostra só nomes e recados, sem e-mails e sem valores.
-
-O Render gratuito bloqueia o envio por SMTP (Gmail, Outlook), por isso o envio usa a API do **Brevo** (gratuito, 300 e-mails por dia):
-
-1. Crie uma conta em brevo.com.
-2. Em *Senders, Domains & Dedicated IPs → Senders*, adicione e confirme o seu e-mail.
-3. Em *SMTP & API → API Keys*, gere uma chave.
-4. No Render, configure `BREVO_API_KEY` e `EMAIL_FROM`.
-
-Sem essas variáveis, o botão do admin abre o seu próprio cliente de e-mail com o texto e o link prontos.
+O admin mostra um link secreto (`/aniversariante.html?k=...`) para mandar ao aniversariante.
+A página dele mostra só os nomes e recados, sem e-mails, sem o presente e sem valores.
+Não mande a ele o link público (`/`), porque ele mostra o presente e o rateio.
 
 ## Deploy no Render
 

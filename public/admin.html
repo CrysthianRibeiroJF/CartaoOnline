@@ -66,13 +66,9 @@
 
     <div class="panel">
       <h2>Aniversariante</h2>
-      <p style="margin:0 0 12px;color:var(--muted);font-size:14px">O aniversariante recebe um e-mail com as mensagens e o link do cartão dele, que mostra só as assinaturas (sem e-mails e sem valores).</p>
-      <form id="anivForm" class="row">
-        <div><label for="anivEmail">E-mail do aniversariante</label><input id="anivEmail" type="email" maxlength="120" placeholder="aniversariante@email.com"></div>
-        <button type="submit" class="ghost">Salvar e-mail</button>
-        <button type="button" id="enviarAniv">Enviar cartão por e-mail</button>
-      </form>
-      <label style="margin-top:14px">Link do cartão do aniversariante</label>
+      <p style="margin:0 0 12px;color:var(--muted);font-size:14px">Mande este link para o aniversariante. A página mostra só as assinaturas e os recados, sem e-mails, sem o presente e sem valores.
+        Não mande o link público do cartão, porque ele mostra o presente e o rateio.</p>
+      <label>Link do cartão do aniversariante</label>
       <div class="row">
         <div><input id="anivLink" readonly></div>
         <button type="button" class="ghost" id="copiarLink">Copiar link</button>
@@ -130,31 +126,12 @@
   }
 
   function renderAniversariante() {
-    const { aniv } = estado;
-    if (document.activeElement !== $('anivEmail')) $('anivEmail').value = aniv.email || '';
-    $('anivLink').value = aniv.link;
-    $('enviarAniv').textContent = aniv.envioAutomatico ? 'Enviar cartão por e-mail' : 'Abrir no meu e-mail';
-    if (!$('anivMsg').textContent && aniv.ultimoEnvio) {
-      $('anivMsg').className = 'msg';
-      $('anivMsg').textContent = 'Último envio: ' + new Date(aniv.ultimoEnvio).toLocaleString('pt-BR');
-    }
+    $('anivLink').value = estado.aniv.link;
   }
 
   function anivAviso(texto, tipo) {
     $('anivMsg').className = 'msg' + (tipo ? ' ' + tipo : '');
     $('anivMsg').textContent = texto;
-  }
-
-  // Sem serviço de e-mail configurado: abre o cliente de e-mail do admin com o texto e o link.
-  function emailManual() {
-    const { aniv, info, lista } = estado;
-    const recados = lista.map(a => (a.mensagem ? '"' + a.mensagem + '"\n' : '') + '— ' + a.nome).join('\n\n');
-    const corpo = 'Feliz aniversário, ' + info.aniversariante + '! 🎂\n\n' +
-      lista.length + ' pessoas assinaram o seu cartão:\n\n' + recados +
-      '\n\nVeja o cartão completo: ' + aniv.link;
-    location.href = 'mailto:' + encodeURIComponent(aniv.email || '') +
-      '?subject=' + encodeURIComponent('Feliz aniversário, ' + info.aniversariante + '! Seu cartão chegou') +
-      '&body=' + encodeURIComponent(corpo);
   }
 
   function render() {
@@ -273,33 +250,6 @@ Valeu!`;
     $('desc').value = ''; $('valor').value = '';
     $('giftMsg').className = 'msg ok'; $('giftMsg').textContent = 'Presente removido.';
     carregar();
-  };
-
-  $('anivForm').addEventListener('submit', async ev => {
-    ev.preventDefault();
-    try {
-      await api('/api/admin/aniversariante', { method: 'PUT', body: JSON.stringify({ email: $('anivEmail').value }) });
-      anivAviso('E-mail do aniversariante salvo.', 'ok');
-      carregar();
-    } catch (e) { anivAviso(e.message, 'err'); }
-  });
-
-  $('enviarAniv').onclick = async () => {
-    const email = $('anivEmail').value.trim();
-    if (!email) return anivAviso('Informe e salve o e-mail do aniversariante primeiro.', 'err');
-    if (email.toLowerCase() !== (estado.aniv.email || '')) {
-      return anivAviso('Clique em "Salvar e-mail" antes de enviar.', 'err');
-    }
-    if (!estado.aniv.envioAutomatico) return emailManual();
-    if (!confirm('Enviar o cartão com ' + estado.lista.length + ' assinaturas para ' + email + '?')) return;
-    $('enviarAniv').disabled = true;
-    anivAviso('Enviando…');
-    try {
-      await api('/api/admin/aniversariante/enviar', { method: 'POST' });
-      anivAviso('Cartão enviado para ' + email + ' 🎉', 'ok');
-      carregar();
-    } catch (e) { anivAviso(e.message, 'err'); }
-    finally { $('enviarAniv').disabled = false; }
   };
 
   $('copiarLink').onclick = () => navigator.clipboard.writeText(estado.aniv.link).then(
